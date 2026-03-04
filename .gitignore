@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Next.js
+.next/
+out/
+build
+
+# Misc
+.DS_Store
+*.log
+.env*
+.vercel
+
+# IDE
+.idea/
+.vscode/
