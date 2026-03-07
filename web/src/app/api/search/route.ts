@@ -1,30 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getEnabledProviders } from "@/lib/provider-registry";
-import type { ProviderAdapter } from "@/providers";
+import { supabase } from "@/lib/supabase";
 import type { ProductOffer, ProviderId } from "@/types/product";
 import { getCachedSearch, setCachedSearch } from "@/lib/cache";
 import { logSearch } from "@/lib/analytics";
-
-const TIMEOUT_MS = 8000;
-
-async function searchProvider(
-  provider: ProviderAdapter,
-  query: string,
-  location: string
-): Promise<{ offers: ProductOffer[]; failed: false } | { failed: true; error?: string }> {
-  try {
-    const timeoutMs = provider.config.searchTimeoutMs ?? TIMEOUT_MS;
-    const offers = await Promise.race([
-      provider.searchProducts({ query, location }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Timeout")), timeoutMs)
-      ),
-    ]);
-    return { offers, failed: false };
-  } catch (err) {
-    return { failed: true, error: err instanceof Error ? err.message : "Unknown error" };
-  }
-}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -45,21 +23,33 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(cached);
   }
 
-  const enabledProviders = getEnabledProviders();
-  const results = await Promise.all(
-    enabledProviders.map((p) => searchProvider(p, query, loc))
-  );
+  // Fetch real data from our Supabase database based on query tags
+  const { data: dbProducts, error } = await supabase
+    .from("groceries")
+    .select("*")
+    .ilike("query_tags", `%${query.toLowerCase()}%`);
 
-  const offers: ProductOffer[] = [];
-  const failedProviders: ProviderId[] = [];
+  if (error) {
+    console.error("Supabase fetch error:", error);
+    return NextResponse.json({ error: "Database error while fetching products" }, { status: 500 });
+  }
 
-  results.forEach((r, i) => {
-    if (r.failed) {
-      failedProviders.push(enabledProviders[i].config.id as ProviderId);
-    } else {
-      offers.push(...r.offers);
-    }
-  });
+  const offers: ProductOffer[] = (dbProducts || []).map((p: any) => ({
+    id: `${p.provider}-${p.id}`,
+    provider: p.provider as ProviderId,
+    providerProductId: `${p.id}`,
+    title: p.title,
+    quantity: p.quantity,
+    price: p.price,
+    mrp: p.mrp,
+    discountPercent: Math.round(((p.mrp - p.price) / p.mrp) * 100) || 0,
+    buyUrl: buildBuyUrl(p.provider, p.title),
+    etaMinutes: p.eta_minutes,
+    deliveryFee: p.delivery_fee,
+    inStock: true,
+  }));
+
+  const failedProviders: ProviderId[] = []; // No failures when using direct DB
 
   const result = {
     query,
@@ -71,4 +61,15 @@ export async function GET(request: NextRequest) {
   setCachedSearch(query, loc, result);
   logSearch(query, loc, offers.length, failedProviders);
   return NextResponse.json(result);
+}
+
+function buildBuyUrl(provider: string, productName: string) {
+  const enc = encodeURIComponent(productName);
+  const urls: Record<string, string> = {
+    blinkit: `https://blinkit.com/s/?q=${enc}`,
+    zepto: `https://www.zeptonow.com/search?q=${enc}`,
+    bigbasket: `https://www.bigbasket.com/ps/?q=${enc}`,
+    instamart: `https://www.swiggy.com/instamart/search?query=${enc}`,
+  };
+  return urls[provider] || urls.blinkit;
 }

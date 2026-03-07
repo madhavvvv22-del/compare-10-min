@@ -1,17 +1,21 @@
 "use client";
 
+import { motion } from "framer-motion";
 import type { ProductOffer } from "@/types/product";
+import { Clock, ShoppingCart, Truck, Tag } from "lucide-react";
 
 interface ProductCardProps {
   offer: ProductOffer;
+  isCheapest?: boolean;
+  isFastest?: boolean;
   onAddToBasket?: (offer: ProductOffer) => void;
 }
 
-const PROVIDER_COLORS: Record<string, string> = {
-  blinkit: "bg-orange-500",
-  zepto: "bg-lime-500",
-  bigbasket: "bg-blue-600",
-  instamart: "bg-orange-600",
+const PROVIDER_THEMES: Record<string, { bg: string; text: string; badge: string; shadow: string }> = {
+  blinkit: { bg: "bg-amber-500/10", text: "text-amber-600 dark:text-amber-400", badge: "bg-amber-500 text-white", shadow: "hover:shadow-amber-500/20" },
+  zepto: { bg: "bg-fuchsia-500/10", text: "text-fuchsia-600 dark:text-fuchsia-400", badge: "bg-fuchsia-500 text-white", shadow: "hover:shadow-fuchsia-500/20" },
+  bigbasket: { bg: "bg-blue-500/10", text: "text-blue-600 dark:text-blue-400", badge: "bg-blue-600 text-white", shadow: "hover:shadow-blue-500/20" },
+  instamart: { bg: "bg-orange-500/10", text: "text-orange-600 dark:text-orange-400", badge: "bg-orange-600 text-white", shadow: "hover:shadow-orange-500/20" },
 };
 
 const PROVIDER_NAMES: Record<string, string> = {
@@ -21,78 +25,101 @@ const PROVIDER_NAMES: Record<string, string> = {
   instamart: "Instamart",
 };
 
-export function ProductCard({ offer, onAddToBasket }: ProductCardProps) {
+export function ProductCard({ offer, isCheapest, isFastest, onAddToBasket }: ProductCardProps) {
   const totalPrice = offer.price + (offer.deliveryFee ?? 0);
+  const theme = PROVIDER_THEMES[offer.provider] ?? PROVIDER_THEMES.blinkit;
 
   return (
-    <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4 shadow-sm hover:shadow-md transition-shadow">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span
-              className={`inline-block px-2 py-0.5 rounded text-xs font-medium text-white ${PROVIDER_COLORS[offer.provider] ?? "bg-zinc-500"}`}
-            >
-              {PROVIDER_NAMES[offer.provider] ?? offer.provider}
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      whileHover={{ y: -4 }}
+      className={`relative rounded-3xl border border-zinc-200 dark:border-white/10 bg-white/70 dark:bg-[#111]/70 backdrop-blur-xl p-5 shadow-lg transition-all duration-300 ${theme.shadow} flex flex-col justify-between h-full`}
+    >
+      {/* Badges container */}
+      <div className="absolute -top-3 left-4 flex gap-2 z-10">
+        {isCheapest && (
+          <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 flex items-center gap-1">
+            <Tag size={12} /> Cheapest
+          </span>
+        )}
+        {isFastest && (
+          <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-500 text-white shadow-lg shadow-blue-500/30 flex items-center gap-1">
+            <Clock size={12} /> Fastest
+          </span>
+        )}
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide ${theme.badge}`}>
+            {PROVIDER_NAMES[offer.provider] ?? offer.provider}
+          </span>
+          {offer.etaMinutes && (
+            <span className={`flex items-center gap-1 text-sm font-semibold ${theme.text} bg-white dark:bg-black px-2 py-1 rounded-lg shadow-sm border border-zinc-100 dark:border-zinc-800`}>
+              <Clock size={14} className="animate-pulse" />
+              {offer.etaMinutes} min
             </span>
-            {offer.etaMinutes && (
-              <span className="text-xs text-zinc-500">
-                {offer.etaMinutes} min
-              </span>
-            )}
-          </div>
-          <h3 className="font-medium text-zinc-900 dark:text-zinc-100 truncate">
-            {offer.title}
-          </h3>
-          {offer.quantity && (
-            <p className="text-sm text-zinc-500">{offer.quantity}</p>
-          )}
-          <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-lg font-semibold text-emerald-600">
-              ₹{offer.price}
-            </span>
-            {offer.mrp && offer.mrp > offer.price && (
-              <span className="text-sm text-zinc-400 line-through">
-                ₹{offer.mrp}
-              </span>
-            )}
-            {offer.discountPercent && offer.discountPercent > 0 && (
-              <span className="text-xs text-emerald-600 font-medium">
-                {offer.discountPercent}% off
-              </span>
-            )}
-          </div>
-          {offer.deliveryFee !== undefined && offer.deliveryFee > 0 && (
-            <p className="text-xs text-zinc-500 mt-1">
-              + ₹{offer.deliveryFee} delivery
-            </p>
           )}
         </div>
-        <div className="flex flex-col gap-2 shrink-0">
+        
+        <h3 className="font-bold text-lg text-zinc-900 dark:text-zinc-50 leading-tight mb-1 line-clamp-2">
+          {offer.title}
+        </h3>
+        {offer.quantity && (
+          <p className="text-sm text-zinc-500 dark:text-zinc-400 font-medium mb-4">{offer.quantity}</p>
+        )}
+      </div>
+
+      <div className="mt-auto">
+        <div className="flex items-end gap-2 mb-2">
+          <span className="text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
+            ₹{offer.price}
+          </span>
+          {offer.mrp && offer.mrp > offer.price && (
+            <span className="text-base text-zinc-400 line-through mb-1">
+              ₹{offer.mrp}
+            </span>
+          )}
+          {offer.discountPercent && offer.discountPercent > 0 && (
+            <span className="text-sm font-bold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded-md mb-1 ml-auto">
+              -{offer.discountPercent}% OFF
+            </span>
+          )}
+        </div>
+        
+        <div className="flex items-center gap-1 text-sm text-zinc-500 dark:text-zinc-400 font-medium mb-5 bg-zinc-50 dark:bg-zinc-900/50 p-2 rounded-xl">
+          <Truck size={14} /> 
+          {offer.deliveryFee === 0 ? (
+            <span className="text-emerald-500 font-bold">Free Delivery</span>
+          ) : (
+            <span>₹{offer.deliveryFee} delivery</span>
+          )}
+          <span className="ml-auto font-bold text-zinc-700 dark:text-zinc-300">
+            Total: ₹{totalPrice}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
           {onAddToBasket && (
             <button
               type="button"
               onClick={() => onAddToBasket(offer)}
-              className="rounded-lg border border-emerald-600 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap"
+              className="flex items-center justify-center p-3 rounded-xl border-2 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-emerald-500 hover:border-emerald-500 dark:hover:text-emerald-400 dark:hover:border-emerald-500 transition-colors"
             >
-              Add to basket
+              <ShoppingCart size={20} strokeWidth={2.5} />
             </button>
           )}
           <a
             href={offer.buyUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded-lg bg-emerald-600 hover:bg-emerald-700 px-4 py-2 text-sm font-medium text-white transition-colors whitespace-nowrap text-center"
+            className={`flex-1 flex items-center justify-center rounded-xl py-3 text-sm font-bold transition-transform active:scale-95 ${theme.badge} shadow-lg ${theme.shadow}`}
           >
-            Buy on {PROVIDER_NAMES[offer.provider] ?? offer.provider}
+            Buy on {PROVIDER_NAMES[offer.provider]}
           </a>
         </div>
       </div>
-      <p className="text-xs text-zinc-500 mt-2">
-        Total: ₹{totalPrice}
-        {offer.deliveryFee !== undefined && offer.deliveryFee > 0 && (
-          <> (incl. delivery)</>
-        )}
-      </p>
-    </div>
+    </motion.div>
   );
 }
