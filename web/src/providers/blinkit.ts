@@ -57,7 +57,15 @@ export async function scrapeBlinkit(query: string, location: string = "110001"):
 
 import type { ProviderAdapter } from "./types";
 export const blinkitProvider: ProviderAdapter = {
-  id: "blinkit",
-  name: "Blinkit",
-  search: scrapeBlinkit
+  config: {
+    id: "blinkit",
+    name: "Blinkit",
+    enabled: true,
+  },
+  searchProducts: async ({ query, location }) => {
+    return scrapeBlinkit(query, location);
+  },
+  buildBuyUrl: (productId, productName, location) => {
+    return `https://blinkit.com/s/?q=${encodeURIComponent(productName)}`;
+  }
 };

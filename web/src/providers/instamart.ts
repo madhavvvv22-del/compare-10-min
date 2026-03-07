@@ -54,7 +54,15 @@ export async function scrapeInstamart(query: string, location: string = "110001"
 
 import type { ProviderAdapter } from "./types";
 export const instamartProvider: ProviderAdapter = {
-  id: "instamart",
-  name: "Swiggy Instamart",
-  search: scrapeInstamart
+  config: {
+    id: "instamart",
+    name: "Swiggy Instamart",
+    enabled: true,
+  },
+  searchProducts: async ({ query, location }) => {
+    return scrapeInstamart(query, location);
+  },
+  buildBuyUrl: (productId, productName, location) => {
+    return `https://www.swiggy.com/instamart/search?query=${encodeURIComponent(productName)}`;
+  }
 };

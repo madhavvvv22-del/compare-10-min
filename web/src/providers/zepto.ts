@@ -52,7 +52,15 @@ export async function scrapeZepto(query: string, location: string = "110001"): P
 
 import type { ProviderAdapter } from "./types";
 export const zeptoProvider: ProviderAdapter = {
-  id: "zepto",
-  name: "Zepto",
-  search: scrapeZepto
+  config: {
+    id: "zepto",
+    name: "Zepto",
+    enabled: true,
+  },
+  searchProducts: async ({ query, location }) => {
+    return scrapeZepto(query, location);
+  },
+  buildBuyUrl: (productId, productName, location) => {
+    return `https://www.zeptonow.com/search?q=${encodeURIComponent(productName)}`;
+  }
 };

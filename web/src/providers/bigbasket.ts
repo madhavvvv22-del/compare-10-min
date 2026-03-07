@@ -51,7 +51,15 @@ export async function scrapeBigbasket(query: string, location: string = "110001"
 
 import type { ProviderAdapter } from "./types";
 export const bigbasketProvider: ProviderAdapter = {
-  id: "bigbasket",
-  name: "BigBasket",
-  search: scrapeBigbasket
+  config: {
+    id: "bigbasket",
+    name: "BigBasket",
+    enabled: true,
+  },
+  searchProducts: async ({ query, location }) => {
+    return scrapeBigbasket(query, location);
+  },
+  buildBuyUrl: (productId, productName, location) => {
+    return `https://www.bigbasket.com/ps/?q=${encodeURIComponent(productName)}`;
+  }
 };
