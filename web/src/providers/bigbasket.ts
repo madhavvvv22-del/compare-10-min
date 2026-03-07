@@ -1,3 +1,4 @@
+// Version 1.0.1 - Triggering fresh build
 import * as cheerio from "cheerio";
 import { fetchWithProxy } from "@/lib/proxy";
 import type { ProductOffer } from "@/types/product";
