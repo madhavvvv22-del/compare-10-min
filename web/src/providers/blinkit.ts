@@ -1,14 +1,9 @@
-import chromium from "@sparticuz/chromium";
-import { chromium as playwright } from "playwright-core";
+import { chromium } from "playwright";
 import type { ProductOffer } from "@/types/product";
 import type { ProviderAdapter } from "./types";
 
 export async function scrapeBlinkit(query: string, location: string = "110001"): Promise<ProductOffer[]> {
-  const browser = await playwright.launch({
-    args: chromium.args,
-    executablePath: await chromium.executablePath(),
-    headless: true,
-  });
+  const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
   });
