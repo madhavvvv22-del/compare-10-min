@@ -3,7 +3,10 @@ import type { ProductOffer } from "@/types/product";
 import type { ProviderAdapter } from "./types";
 
 export async function scrapeZepto(query: string, location: string = "110001"): Promise<ProductOffer[]> {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ 
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
   });
