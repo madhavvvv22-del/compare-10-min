@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { providers } from "@/providers";
 import type { ProductOffer, ProviderId } from "@/types/product";
 import { getCachedSearch, setCachedSearch } from "@/lib/cache";
 import { logSearch } from "@/lib/analytics";
@@ -7,7 +7,7 @@ import { logSearch } from "@/lib/analytics";
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const query = searchParams.get("query")?.trim() ?? "";
-  const location = searchParams.get("location")?.trim() ?? "";
+  const location = searchParams.get("location")?.trim() ?? "110001";
 
   if (!query) {
     return NextResponse.json(
@@ -16,60 +16,44 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const loc = location || "110001"; // default Delhi pincode
-
-  const cached = getCachedSearch(query, loc);
+  // 1. Check Cache
+  const cached = getCachedSearch(query, location);
   if (cached) {
     return NextResponse.json(cached);
   }
 
-  // Fetch real data from our Supabase database based on query tags
-  const { data: dbProducts, error } = await supabase
-    .from("groceries")
-    .select("*")
-    .ilike("query_tags", `%${query.toLowerCase()}%`);
+  // 2. Fetch from active providers using Headless Playwright/API
+  const failedProviders: ProviderId[] = [];
+  const resultsPromises = providers.map(async (provider) => {
+    try {
+      if (!provider.config.enabled) return [];
+      const data = await provider.searchProducts({ query, location });
+      if (!data || data.length === 0) {
+        throw new Error("Empty data returned");
+      }
+      return data;
+    } catch (error) {
+       console.error(`Failed to fetch from ${provider.config.id}:`, error);
+       failedProviders.push(provider.config.id as ProviderId);
+       return [];
+    }
+  });
 
-  if (error) {
-    console.error("Supabase fetch error:", error);
-    return NextResponse.json({ error: "Database error while fetching products" }, { status: 500 });
-  }
-
-  const offers: ProductOffer[] = (dbProducts || []).map((p: any) => ({
-    id: `${p.provider}-${p.id}`,
-    provider: p.provider as ProviderId,
-    providerProductId: `${p.id}`,
-    title: p.title,
-    quantity: p.quantity,
-    price: p.price,
-    mrp: p.mrp,
-    discountPercent: Math.round(((p.mrp - p.price) / p.mrp) * 100) || 0,
-    buyUrl: buildBuyUrl(p.provider, p.title),
-    etaMinutes: p.eta_minutes,
-    deliveryFee: p.delivery_fee,
-    inStock: true,
-  }));
-
-  const failedProviders: ProviderId[] = []; // No failures when using direct DB
+  const allOffers = await Promise.all(resultsPromises);
+  const offers: ProductOffer[] = allOffers.flat();
 
   const result = {
     query,
-    location: loc,
+    location,
     offers,
     ...(failedProviders.length > 0 && { failedProviders }),
   };
 
-  setCachedSearch(query, loc, result);
-  logSearch(query, loc, offers.length, failedProviders);
-  return NextResponse.json(result);
-}
+  // 3. Save to cache & analytics
+  if (offers.length > 0) {
+    setCachedSearch(query, location, result);
+    logSearch(query, location, offers.length, failedProviders);
+  }
 
-function buildBuyUrl(provider: string, productName: string) {
-  const enc = encodeURIComponent(productName);
-  const urls: Record<string, string> = {
-    blinkit: `https://blinkit.com/s/?q=${enc}`,
-    zepto: `https://www.zeptonow.com/search?q=${enc}`,
-    bigbasket: `https://www.bigbasket.com/ps/?q=${enc}`,
-    instamart: `https://www.swiggy.com/instamart/search?query=${enc}`,
-  };
-  return urls[provider] || urls.blinkit;
+  return NextResponse.json(result);
 }

@@ -1,56 +1,110 @@
-import * as cheerio from "cheerio";
-import { fetchWithProxy } from "@/lib/proxy";
+import { chromium } from "playwright";
 import type { ProductOffer } from "@/types/product";
+import type { ProviderAdapter } from "./types";
 
 export async function scrapeZepto(query: string, location: string = "110001"): Promise<ProductOffer[]> {
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
+  });
+  
+  const page = await context.newPage();
+  let productDataJson: any = null;
+
+  // Intercept the clean JSON API
+  page.on('response', async (response) => {
+    if (response.url().includes('api/v3/search') && response.request().method() === 'POST') {
+      if (response.status() === 200 || response.status() === 201) {
+        try {
+          productDataJson = await response.json(); 
+        } catch(e) {}
+      }
+    }
+  });
+
   try {
-    const searchUrl = `https://www.zeptonow.com/search?q=${encodeURIComponent(query)}`;
-    const html = await fetchWithProxy(searchUrl);
-    const $ = cheerio.load(html);
-    const offers: ProductOffer[] = [];
+    // Navigate and trigger search physically
+    await page.goto('https://www.zeptonow.com/', { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(1000);
     
-    // Zepto standard classes
-    $("[data-testid='product-card'], .product-card").each((_, el) => {
-      try {
-        const title = $(el).find("h5").text().trim() || $(el).find(".product-name").text().trim();
-        const quantity = $(el).find(".volume-text").text().trim() || $(el).find("span[class*='weight']").text().trim();
-        
-        const priceText = $(el).find("h4").text().trim() || $(el).find(".selling-price").text().trim();
-        const mrpText = $(el).find(".mrp-text").text().trim();
+    // Focus search bar and type
+    try {
+      await page.click('[placeholder*="Search"]', { timeout: 2000 });
+    } catch(e) {
+      await page.click('text="Search for"', { timeout: 2000 });
+    }
 
-        if (!title || !priceText) return;
-
-        // Strip non-digits safely
-        const price = parseInt(priceText.replace(/[^0-9]/g, "")) || 0;
-        const mrp = mrpText ? parseInt(mrpText.replace(/[^0-9]/g, "")) : price;
-
-        if (price > 0) {
-          offers.push({
-            id: `zepto-${Math.random().toString(36).substr(2, 9)}`,
-            provider: "zepto",
-            providerProductId: `zpt-${Date.now()}`,
-            title,
-            quantity: quantity || "1 pc",
-            price,
-            mrp,
-            discountPercent: Math.round(((mrp - price) / mrp) * 100) || 0,
-            buyUrl: searchUrl,
-            etaMinutes: 9, // Estimated average
-            deliveryFee: 15, // Fixed base Zepto delivery fee for demo purposes
-            inStock: true
-          });
-        }
-      } catch (e) {}
-    });
-
-    return offers.slice(0, 5);
-  } catch (error) {
-    console.error("Zepto ScrapingBee Error:", error);
-    return [];
+    await page.keyboard.type(query, { delay: 50 });
+    await page.keyboard.press('Enter');
+    
+    // Wait for the intercepted JSON to appear (max 5 seconds)
+    let waited = 0;
+    while (!productDataJson && waited < 5000) {
+      await page.waitForTimeout(200);
+      waited += 200;
+    }
+    
+  } catch (e) {
+    console.error("Zepto Playwright Nav Error:", e);
+  } finally {
+    await browser.close();
   }
+
+  const offers: ProductOffer[] = [];
+  
+  if (productDataJson && productDataJson.layout) {
+    // Parse the JSON layout payload recursively to find items
+    const searchRecursively = (obj: any): any[] => {
+      let items: any[] = [];
+      if (Array.isArray(obj)) {
+        for (const v of obj) items.push(...searchRecursively(v));
+      } else if (obj !== null && typeof obj === 'object') {
+        if (obj.items && Array.isArray(obj.items)) {
+          items.push(...obj.items);
+        }
+        for (const key of Object.keys(obj)) {
+          if (key !== 'items') items.push(...searchRecursively(obj[key]));
+        }
+      }
+      return items;
+    };
+
+    const allItems = searchRecursively(productDataJson.layout);
+    
+    for (const item of allItems) {
+      if (item && item.productResponse && item.productResponse.product) {
+        const p = item.productResponse.product;
+        
+        let price = (p.discountedPrice || p.mrp || 0) / 100;
+        let mrp = (p.mrp || p.discountedPrice || 0) / 100;
+        
+        if (price === 0) continue;
+
+        offers.push({
+          id: `zepto-${p.id}`,
+          provider: "zepto" as const,
+          providerProductId: p.id,
+          title: p.name || "",
+          brand: p.brand || "",
+          quantity: p.packRatio || p.unitDescription || "1 unit",
+          price,
+          mrp,
+          discountPercent: mrp > price ? Math.round(((mrp - price) / mrp) * 100) : 0,
+          imageUrl: p.imageResponse?.imageDTOs?.[0]?.imageUrl || "",
+          buyUrl: `https://www.zeptonow.com/search?q=${encodeURIComponent(query)}`,
+          etaMinutes: 10,
+          deliveryFee: 15,
+          inStock: !p.outOfStock
+        });
+
+        if (offers.length >= 5) break;
+      }
+    }
+  }
+
+  return offers.slice(0, 5);
 }
 
-import type { ProviderAdapter } from "./types";
 export const zeptoProvider: ProviderAdapter = {
   config: {
     id: "zepto",

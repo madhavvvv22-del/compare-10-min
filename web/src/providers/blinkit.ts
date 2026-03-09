@@ -1,61 +1,66 @@
-import * as cheerio from "cheerio";
-import { fetchWithProxy } from "@/lib/proxy";
+import { chromium } from "playwright";
 import type { ProductOffer } from "@/types/product";
+import type { ProviderAdapter } from "./types";
 
 export async function scrapeBlinkit(query: string, location: string = "110001"): Promise<ProductOffer[]> {
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
+  });
+  
+  const page = await context.newPage();
+  let products: any[] = [];
+
   try {
-    const searchUrl = `https://blinkit.com/s/?q=${encodeURIComponent(query)}`;
+    await page.goto(`https://blinkit.com/s/?q=${encodeURIComponent(query)}`, { waitUntil: 'domcontentloaded' });
     
-    // Use ScrapingBee to get the HTML fully rendered bypassing Cloudflare
-    const html = await fetchWithProxy(searchUrl);
-    const $ = cheerio.load(html);
+    // Fallback: wait for product cards to render, then pull from DOM
+    await page.waitForSelector('.Product--card', { timeout: 6000 }).catch(() => null);
 
-    const offers: ProductOffer[] = [];
-    
-    // Blinkit generic product card selector
-    $(".Product--card").each((_, el) => {
-      try {
-        const title = $(el).find(".Product--name").text().trim() || $(el).find("div[class*='name']").text().trim();
-        const quantity = $(el).find(".Product--quantity").text().trim() || $(el).find("div[class*='weight']").text().trim();
-        
-        let priceStr = $(el).find(".Product--price").text().trim() || $(el).find("div[class*='price']").first().text().trim();
-        let mrpStr = $(el).find(".Product--mrp").text().trim() || $(el).find("div[class*='mrp']").text().trim();
-
-        if (!title || !priceStr) return;
-
-        const price = parseInt(priceStr.replace(/[^0-9]/g, "")) || 0;
-        const mrp = mrpStr ? parseInt(mrpStr.replace(/[^0-9]/g, "")) : price;
-
-        if (price > 0) {
-          offers.push({
-            id: `blinkit-${Math.random().toString(36).substr(2, 9)}`,
-            provider: "blinkit",
-            providerProductId: `blk-${Date.now()}`,
-            title,
-            quantity: quantity || "1 pc",
-            price,
-            mrp,
-            discountPercent: Math.round(((mrp - price) / mrp) * 100) || 0,
-            buyUrl: searchUrl,
-            etaMinutes: 10,
-            deliveryFee: 15,
-            inStock: true
-          });
-        }
-      } catch (e) {
-        // Skip malformed nodes
-      }
+    // Playwright scraping the DOM is very robust against bot detection:
+    products = await page.$$eval('.Product--card', elements => {
+      return elements.slice(0, 5).map(el => {
+          const title = el.querySelector("[class*='name']")?.textContent || "";
+          const quantity = el.querySelector("[class*='weight']")?.textContent || "";
+          const priceText = el.querySelector('.Product--price')?.textContent || el.querySelector("[class*='price']")?.textContent || "0";
+          const mrpText = el.querySelector('.Product--mrp')?.textContent || el.querySelector("[class*='mrp']")?.textContent || priceText;
+          
+          const price = parseInt(priceText.replace(/[^0-9]/g, "")) || 0;
+          const mrp = mrpText ? parseInt(mrpText.replace(/[^0-9]/g, "")) : price;
+          
+          return {
+              title: title.trim(),
+              quantity: quantity.trim(),
+              price,
+              mrp,
+          };
+      });
     });
 
-    return offers.slice(0, 5); // Return top 5 live results
-
-  } catch (error) {
-    console.error("Blinkit ScrapingBee Error:", error);
-    return []; // Return empty on failure so the UI gracefully shows 0 for Blinkit
+  } catch (e) {
+    console.error("Blinkit Playwright Nav Error:", e);
+  } finally {
+    await browser.close();
   }
+
+  const offers: ProductOffer[] = products.map((p, index) => ({
+    id: `blinkit-${index}-${Date.now()}`,
+    provider: "blinkit" as const,
+    providerProductId: `blk-${index}`,
+    title: p.title,
+    quantity: p.quantity || "1 pc",
+    price: p.price,
+    mrp: p.mrp,
+    discountPercent: p.mrp > p.price ? Math.round(((p.mrp - p.price) / p.mrp) * 100) : 0,
+    buyUrl: `https://blinkit.com/s/?q=${encodeURIComponent(query)}`,
+    etaMinutes: 10,
+    deliveryFee: 15,
+    inStock: true
+  })).filter(o => o.title && o.price > 0);
+
+  return offers;
 }
 
-import type { ProviderAdapter } from "./types";
 export const blinkitProvider: ProviderAdapter = {
   config: {
     id: "blinkit",
